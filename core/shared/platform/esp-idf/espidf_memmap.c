@@ -5,6 +5,10 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
+#if (WASM_MEM_EXEC_IN_PSRAM != 0)
+#include "esp_log.h"
+#include "esp_memory_utils.h"
+#endif
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
 #include "soc/mmu.h"
 #include "rom/cache.h"
@@ -21,7 +25,8 @@ void *
 os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
 {
     if (prot & MMAP_PROT_EXEC) {
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_EXEC_IN_PSRAM != 0)
         uint32_t mem_caps = MALLOC_CAP_SPIRAM;
 #else
         uint32_t mem_caps = MALLOC_CAP_EXEC;
@@ -47,12 +52,23 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
         return buf_fixed + MEM_DUAL_BUS_OFFSET;
 #else
         memset(buf_fixed, 0, size);
+#if (WASM_MEM_EXEC_IN_PSRAM != 0)
+        ESP_LOGI("wamr_memmap",
+                 "AOT executable allocation: ptr=%p size=%u PSRAM=%s executable=%s",
+                 buf_fixed, (unsigned)size,
+                 esp_ptr_external_ram(buf_fixed) ? "yes" : "no",
+                 esp_ptr_executable(buf_fixed) ? "yes" : "no");
+#endif
         return buf_fixed;
 #endif
     }
     else {
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
         uint32_t mem_caps = MALLOC_CAP_SPIRAM;
+#elif CONFIG_WAMR_LINEAR_MEMORY_IN_PSRAM
+        /* Non-executable mmap backs Wasm linear memory. The host-managed
+         * guest heap is embedded in this same allocation. */
+        uint32_t mem_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
 #else
         uint32_t mem_caps = MALLOC_CAP_8BIT;
 #endif
@@ -128,6 +144,14 @@ void
 void
 os_icache_flush(void *start, size_t len)
 {
+#if (WASM_MEM_EXEC_IN_PSRAM != 0)
+    /* P4 has a unified PSRAM address range, but instruction fetch still must
+     * observe the code bytes and relocations written through the data path. */
+    __builtin___clear_cache((char *)start, (char *)start + len);
+#else
+    (void)start;
+    (void)len;
+#endif
 }
 
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)

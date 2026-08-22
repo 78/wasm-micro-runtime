@@ -2077,11 +2077,11 @@ wasm_runtime_dump_module_inst_mem_consumption(
     }
 #endif
 
-    LOG_VERBOSE("WASM module inst memory consumption, total size: %lu",
+    LOG_VERBOSE("WASM module inst memory consumption, total size: %" PRIu64,
                 mem_conspn.total_size);
     LOG_VERBOSE("    module inst struct size: %u",
                 mem_conspn.module_inst_struct_size);
-    LOG_VERBOSE("    memories size: %lu", mem_conspn.memories_size);
+    LOG_VERBOSE("    memories size: %" PRIu64, mem_conspn.memories_size);
     LOG_VERBOSE("        app heap size: %u", mem_conspn.app_heap_size);
     LOG_VERBOSE("    tables size: %u", mem_conspn.tables_size);
     LOG_VERBOSE("    functions size: %u", mem_conspn.functions_size);

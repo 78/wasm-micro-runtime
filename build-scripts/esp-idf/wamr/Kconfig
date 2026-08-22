@@ -67,6 +67,10 @@ menu "WASM Micro Runtime"
         bool "Performance profiling"
         default n
 
+    config WAMR_ENABLE_DUMP_CALL_STACK
+        bool "Guest call stack diagnostics"
+        default y
+
     config WAMR_ENABLE_REF_TYPES
         bool "Reference types"
         default n
@@ -74,4 +78,27 @@ menu "WASM Micro Runtime"
     config WAMR_ENABLE_SHARED_MEMORY
         bool "Shared memory"
         default n
+
+    config WAMR_LINEAR_MEMORY_IN_PSRAM
+        bool "Allocate guest linear memory and app heap in PSRAM"
+        depends on SPIRAM && (SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC)
+        default n
+        help
+            Allocate WAMR's non-executable mmap region, which backs guest
+            linear memory and the host-managed app heap, explicitly from
+            PSRAM. Runtime metadata, native task stacks, and relocated AOT
+            code continue to use internal memory.
+
+    config WAMR_AOT_CODE_IN_PSRAM
+        bool "Place relocated AOT executable code in PSRAM"
+        depends on WAMR_ENABLE_AOT && SPIRAM
+        depends on SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC
+        depends on IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+        default n
+        help
+            Allocate WAMR's relocated AOT text from executable PSRAM. ESP32-P4
+            uses its unified external-memory address range; Xtensa targets use
+            the platform's I-bus/D-bus mirror. Keep this disabled when only
+            guest data should use PSRAM. Xtensa literal relocations may also be
+            unable to reach runtime symbols from external memory.
 endmenu

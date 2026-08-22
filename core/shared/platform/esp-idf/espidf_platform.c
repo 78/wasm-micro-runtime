@@ -76,13 +76,14 @@ os_time_thread_cputime_us(void)
 uint8 *
 os_thread_get_stack_boundary(void)
 {
-#if defined(CONFIG_FREERTOS_USE_TRACE_FACILITY)
-    TaskStatus_t pxTaskStatus;
-    vTaskGetInfo(xTaskGetCurrentTaskHandle(), &pxTaskStatus, pdTRUE, eInvalid);
-    return pxTaskStatus.pxStackBase;
-#else // !defined(CONFIG_FREERTOS_USE_TRACE_FACILITY)
-    return NULL;
-#endif
+    /*
+     * Read TCB->pxStack only. The previous vTaskGetInfo(..., pdTRUE,
+     * eInvalid) path walked the whole stack for a high-water mark and
+     * called eTaskGetState(); that dominated Host->Guest
+     * wasm_runtime_call_wasm on ESP32 (hundreds of microseconds).
+     * xTaskGetStackStart() does not need TRACE_FACILITY.
+     */
+    return (uint8 *)xTaskGetStackStart(NULL);
 }
 
 void

@@ -280,10 +280,29 @@ wasm_exec_env_restore_module_inst(
 void
 wasm_exec_env_set_thread_info(WASMExecEnv *exec_env)
 {
+    korp_tid self = os_self_thread();
+
+    /*
+     * aot_call_function / wasm_call_function invoke this on every
+     * Host->Guest entry. The native stack base is immutable for a
+     * FreeRTOS task, so reuse the cached boundary when the same Host
+     * thread calls again. Refresh if the caller changed or the
+     * embedder set a new user_native_stack_boundary.
+     */
+    if (exec_env->handle == self && exec_env->native_stack_boundary
+        && (!exec_env->user_native_stack_boundary
+            || exec_env->native_stack_boundary
+                   == exec_env->user_native_stack_boundary)) {
+#if WASM_ENABLE_MEMORY_PROFILING != 0
+        exec_env->native_stack_top_min = (void *)UINTPTR_MAX;
+#endif
+        return;
+    }
+
 #if WASM_ENABLE_THREAD_MGR != 0
     os_mutex_lock(&exec_env->wait_lock);
 #endif
-    exec_env->handle = os_self_thread();
+    exec_env->handle = self;
     if (exec_env->user_native_stack_boundary)
         /* WASM_STACK_GUARD_SIZE isn't added for flexibility to developer,
            he must ensure that enough guard bytes are kept. */

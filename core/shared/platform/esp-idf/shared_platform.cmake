@@ -15,8 +15,16 @@ set (source_all ${source_all} ${PLATFORM_COMMON_LIBC_UTIL_SOURCE})
 
 set (PLATFORM_SHARED_SOURCE ${source_all} ${PLATFORM_COMMON_MATH_SOURCE})
 
-# If enable PSRAM of ESP32-S3, it had better to put AOT into PSRAM, so that
-# users can use SRAM to for Wi-Fi/BLE and peripheral driver.
-if(CONFIG_ESP32S3_SPIRAM_SUPPORT)
-    add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=1)
+# Executable PSRAM is independent from placing guest linear memory in PSRAM.
+# Keep AOT code in internal executable SRAM unless explicitly requested.
+if(CONFIG_WAMR_AOT_CODE_IN_PSRAM)
+    if(CONFIG_IDF_TARGET_ESP32P4)
+        # ESP32-P4 exposes PSRAM in a unified executable address range.  Do
+        # not apply the Xtensa I-bus/D-bus address mirror used by S2/S3.
+        add_definitions(-DWASM_MEM_EXEC_IN_PSRAM=1)
+    elseif(CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32S3)
+        add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=1)
+    else()
+        message(FATAL_ERROR "WAMR executable PSRAM is not implemented for ${IDF_TARGET}")
+    endif()
 endif()

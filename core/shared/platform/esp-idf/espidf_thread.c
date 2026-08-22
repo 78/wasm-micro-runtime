@@ -10,10 +10,33 @@
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
 
+#include "esp_pthread.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 typedef struct {
     thread_start_routine_t start;
     void *arg;
+    unsigned int stack_size;
 } thread_wrapper_arg;
+
+static _Thread_local unsigned int current_wamr_thread_stack_size;
+
+static void
+log_thread_stack_profile(unsigned int stack_size)
+{
+    size_t minimum_free = (size_t)uxTaskGetStackHighWaterMark2(NULL);
+    size_t maximum_used = stack_size > minimum_free
+                              ? stack_size - minimum_free
+                              : 0;
+    os_printf("WAMR Guest pthread native stack: configured=%u B, "
+              "max-used=%u B, minimum-free=%u B, utilization=%u%%\n",
+              stack_size, (unsigned int)maximum_used,
+              (unsigned int)minimum_free,
+              stack_size > 0
+                  ? (unsigned int)(maximum_used * 100U / stack_size)
+                  : 0);
+}
 
 static void *
 os_thread_wrapper(void *arg)
@@ -21,12 +44,16 @@ os_thread_wrapper(void *arg)
     thread_wrapper_arg *targ = arg;
     thread_start_routine_t start_func = targ->start;
     void *thread_arg = targ->arg;
+    unsigned int stack_size = targ->stack_size;
 
 #if 0
     os_printf("THREAD CREATED %jx\n", (uintmax_t)(uintptr_t)pthread_self());
 #endif
     BH_FREE(targ);
+    current_wamr_thread_stack_size = stack_size;
     start_func(thread_arg);
+    log_thread_stack_profile(stack_size);
+    current_wamr_thread_stack_size = 0;
     return NULL;
 }
 
@@ -87,6 +114,9 @@ os_thread_create_with_prio(korp_tid *tid, thread_start_routine_t start,
 {
     pthread_attr_t tattr;
     thread_wrapper_arg *targ;
+    esp_pthread_cfg_t parent_cfg;
+    esp_pthread_cfg_t child_cfg;
+    bool parent_cfg_found;
 
     assert(stack_size > 0);
     assert(tid);
@@ -109,18 +139,45 @@ os_thread_create_with_prio(korp_tid *tid, thread_start_routine_t start,
 
     targ->start = start;
     targ->arg = arg;
+    targ->stack_size = stack_size;
 
+    /*
+     * AOT shared-memory atomics compile to Xtensa S32C1I. Guest linear memory
+     * lives in cached PSRAM in this port, so sibling Guest threads must stay on
+     * the same core for the compare-and-swap loop to be reliable. Keep Host
+     * pthreads unrestricted: only WAMR-created children inherit this affinity.
+     */
+    parent_cfg_found = esp_pthread_get_cfg(&parent_cfg) == ESP_OK;
+    child_cfg = parent_cfg_found ? parent_cfg
+                                 : esp_pthread_get_default_config();
 #ifdef CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
-    esp_pthread_cfg_t default_config = esp_pthread_get_default_config();
-
-    default_config.stack_alloc_caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
-    ESP_ERROR_CHECK(esp_pthread_set_cfg(&default_config));
+    child_cfg.stack_alloc_caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
 #endif
-
-    if (pthread_create(tid, &tattr, os_thread_wrapper, targ) != 0) {
+    child_cfg.pin_to_core = xPortGetCoreID();
+    child_cfg.inherit_cfg = true;
+    if (esp_pthread_set_cfg(&child_cfg) != ESP_OK) {
         pthread_attr_destroy(&tattr);
         os_free(targ);
         return BHT_ERROR;
+    }
+
+    if (pthread_create(tid, &tattr, os_thread_wrapper, targ) != 0) {
+        if (parent_cfg_found)
+            (void)esp_pthread_set_cfg(&parent_cfg);
+        else {
+            esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
+            (void)esp_pthread_set_cfg(&default_cfg);
+        }
+        pthread_attr_destroy(&tattr);
+        os_free(targ);
+        return BHT_ERROR;
+    }
+
+    if (parent_cfg_found)
+        (void)esp_pthread_set_cfg(&parent_cfg);
+    else {
+        esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
+        (void)esp_pthread_set_cfg(&default_cfg);
     }
 
     pthread_attr_destroy(&tattr);
@@ -150,6 +207,10 @@ os_thread_detach(korp_tid tid)
 void
 os_thread_exit(void *retval)
 {
+    if (current_wamr_thread_stack_size > 0) {
+        log_thread_stack_profile(current_wamr_thread_stack_size);
+        current_wamr_thread_stack_size = 0;
+    }
     pthread_exit(retval);
 }
 

@@ -174,11 +174,12 @@ typedef struct WASMExecEnv {
 } WASMExecEnv;
 
 #if WASM_ENABLE_MEMORY_PROFILING != 0
-#define RECORD_STACK_USAGE(e, p)               \
-    do {                                       \
-        if ((e)->native_stack_top_min > (p)) { \
-            (e)->native_stack_top_min = (p);   \
-        }                                      \
+#define RECORD_STACK_USAGE(e, p)                                      \
+    do {                                                              \
+        uintptr_t stack_position = (uintptr_t)(p);                    \
+        if ((uintptr_t)(e)->native_stack_top_min > stack_position) {  \
+            (e)->native_stack_top_min = (uint8 *)stack_position;      \
+        }                                                             \
     } while (0)
 #else
 #define RECORD_STACK_USAGE(e, p) (void)0
