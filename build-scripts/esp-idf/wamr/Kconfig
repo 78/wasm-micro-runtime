@@ -93,12 +93,13 @@ menu "WASM Micro Runtime"
         bool "Place relocated AOT executable code in PSRAM"
         depends on WAMR_ENABLE_AOT && SPIRAM
         depends on SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC
-        depends on IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+        depends on IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
         default n
         help
             Allocate WAMR's relocated AOT text from executable PSRAM. ESP32-P4
-            uses its unified external-memory address range; Xtensa targets use
-            the platform's I-bus/D-bus mirror. Keep this disabled when only
-            guest data should use PSRAM. Xtensa literal relocations may also be
-            unable to reach runtime symbols from external memory.
+            and ESP32-S31 use their unified external-memory address ranges;
+            Xtensa targets use the platform's I-bus/D-bus mirror. Keep this
+            disabled when only guest data should use PSRAM. Xtensa literal
+            relocations may also be unable to reach runtime symbols from
+            external memory.
 endmenu

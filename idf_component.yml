@@ -14,5 +14,6 @@ targets:
   - esp32c6
   - esp32p4
   - esp32c5
+  - esp32s31
 examples:
   - path: product-mini/platforms/esp-idf

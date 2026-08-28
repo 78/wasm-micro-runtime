@@ -145,8 +145,8 @@ void
 os_icache_flush(void *start, size_t len)
 {
 #if (WASM_MEM_EXEC_IN_PSRAM != 0)
-    /* P4 has a unified PSRAM address range, but instruction fetch still must
-     * observe the code bytes and relocations written through the data path. */
+    /* Unified executable PSRAM still needs instruction fetch to observe the
+     * code bytes and relocations written through the data path. */
     __builtin___clear_cache((char *)start, (char *)start + len);
 #else
     (void)start;

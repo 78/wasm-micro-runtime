@@ -18,9 +18,9 @@ set (PLATFORM_SHARED_SOURCE ${source_all} ${PLATFORM_COMMON_MATH_SOURCE})
 # Executable PSRAM is independent from placing guest linear memory in PSRAM.
 # Keep AOT code in internal executable SRAM unless explicitly requested.
 if(CONFIG_WAMR_AOT_CODE_IN_PSRAM)
-    if(CONFIG_IDF_TARGET_ESP32P4)
-        # ESP32-P4 exposes PSRAM in a unified executable address range.  Do
-        # not apply the Xtensa I-bus/D-bus address mirror used by S2/S3.
+    if(CONFIG_IDF_TARGET_ESP32P4 OR CONFIG_IDF_TARGET_ESP32S31)
+        # ESP32-P4 and ESP32-S31 expose PSRAM in unified executable address
+        # ranges. Do not apply the Xtensa I-bus/D-bus mirror used by S2/S3.
         add_definitions(-DWASM_MEM_EXEC_IN_PSRAM=1)
     elseif(CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32S3)
         add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=1)
