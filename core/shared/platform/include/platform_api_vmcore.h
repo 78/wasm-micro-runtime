@@ -165,7 +165,8 @@ os_mremap_slow(void *old_addr, size_t old_size, size_t new_size)
 void *
 os_mremap(void *old_addr, size_t old_size, size_t new_size);
 
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
 void *
 os_get_dbus_mirror(void *ibus);
 #endif

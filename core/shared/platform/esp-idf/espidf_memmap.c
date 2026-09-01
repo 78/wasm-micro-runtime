@@ -5,20 +5,98 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
-#if (WASM_MEM_EXEC_IN_PSRAM != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_EXEC_IN_PSRAM != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
 #include "esp_log.h"
 #include "esp_memory_utils.h"
 #endif
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#include "esp_cache.h"
+#include "esp_err.h"
+#include "esp_ipc.h"
+#include "esp_intr_alloc.h"
 #include "soc/mmu.h"
 #include "rom/cache.h"
 
-#define MEM_DUAL_BUS_OFFSET (SOC_IROM_LOW - SOC_IROM_HIGH)
+#define MEM_DUAL_BUS_OFFSET (SOC_IROM_LOW - SOC_DROM_LOW)
 
 #define in_ibus_ext(addr) \
     (((uint32)addr >= SOC_IROM_LOW) && ((uint32)addr < SOC_IROM_HIGH))
 
 static portMUX_TYPE s_spinlock = portMUX_INITIALIZER_UNLOCKED;
+#if defined(CONFIG_ESP_IPC_ENABLE) \
+    && (CONFIG_FREERTOS_NUMBER_OF_CORES > 1)
+static portMUX_TYPE s_other_core_spinlock = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool s_other_core_parked;
+static volatile bool s_release_other_core;
+
+static void IRAM_ATTR
+park_other_core_for_cache_maintenance(void *arg)
+{
+    (void)arg;
+    portENTER_CRITICAL(&s_other_core_spinlock);
+    esp_intr_noniram_disable();
+    s_other_core_parked = true;
+    __asm__ __volatile__("memw" ::: "memory");
+    while (!s_release_other_core) {
+        __asm__ __volatile__("memw\n\tnop" ::: "memory");
+    }
+    s_other_core_parked = false;
+    __asm__ __volatile__("memw" ::: "memory");
+    esp_intr_noniram_enable();
+    portEXIT_CRITICAL(&s_other_core_spinlock);
+}
+
+static void
+park_other_core(void)
+{
+    s_other_core_parked = false;
+    s_release_other_core = false;
+    __asm__ __volatile__("memw" ::: "memory");
+    const uint32_t other_core = xPortGetCoreID() == 0 ? 1U : 0U;
+    /* Continuing without the peer parked would make the range invalidate
+     * unsafe. IPC is a required part of the dual-core executable-PSRAM
+     * contract, so fail closed instead of silently degrading. */
+    ESP_ERROR_CHECK(
+        esp_ipc_call(other_core, park_other_core_for_cache_maintenance, NULL));
+    while (!s_other_core_parked) {
+        __asm__ __volatile__("memw\n\tnop" ::: "memory");
+    }
+}
+
+static void
+release_other_core(void)
+{
+    s_release_other_core = true;
+    __asm__ __volatile__("memw" ::: "memory");
+    while (s_other_core_parked) {
+        __asm__ __volatile__("memw\n\tnop" ::: "memory");
+    }
+}
+#endif
+
+static void IRAM_ATTR
+begin_cache_exclusive(void)
+{
+#if defined(CONFIG_ESP_IPC_ENABLE) \
+    && (CONFIG_FREERTOS_NUMBER_OF_CORES > 1)
+    park_other_core();
+#endif
+    portENTER_CRITICAL(&s_spinlock);
+    esp_intr_noniram_disable();
+}
+
+static void IRAM_ATTR
+end_cache_exclusive(void)
+{
+    esp_intr_noniram_enable();
+    portEXIT_CRITICAL(&s_spinlock);
+#if defined(CONFIG_ESP_IPC_ENABLE) \
+    && (CONFIG_FREERTOS_NUMBER_OF_CORES > 1)
+    release_other_core();
+#endif
+}
 #endif
 
 void *
@@ -48,8 +126,13 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
         uintptr_t *addr_field = buf_fixed - sizeof(uintptr_t);
         *addr_field = (uintptr_t)buf_origin;
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
-        memset(buf_fixed + MEM_DUAL_BUS_OFFSET, 0, size);
-        return buf_fixed + MEM_DUAL_BUS_OFFSET;
+        void *exec_ptr = buf_fixed + MEM_DUAL_BUS_OFFSET;
+        memset(buf_fixed, 0, size);
+        ESP_LOGI("wamr_memmap",
+                 "AOT executable allocation: exec=%p write=%p size=%u PSRAM=%s",
+                 exec_ptr, buf_fixed, (unsigned)size,
+                 esp_ptr_external_ram(buf_fixed) ? "yes" : "no");
+        return exec_ptr;
 #else
         memset(buf_fixed, 0, size);
 #if (WASM_MEM_EXEC_IN_PSRAM != 0)
@@ -125,44 +208,66 @@ void
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
     IRAM_ATTR
 #endif
-    os_dcache_flush()
+os_dcache_flush()
 {
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
-    uint32_t preload;
     extern void Cache_WriteBack_All(void);
 
-    portENTER_CRITICAL(&s_spinlock);
-
+    begin_cache_exclusive();
     Cache_WriteBack_All();
-    preload = Cache_Disable_ICache();
-    Cache_Enable_ICache(preload);
-
-    portEXIT_CRITICAL(&s_spinlock);
+    end_cache_exclusive();
 #endif
 }
 
 void
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+    IRAM_ATTR
+#endif
 os_icache_flush(void *start, size_t len)
 {
-#if (WASM_MEM_EXEC_IN_PSRAM != 0)
-    /* Unified executable PSRAM still needs instruction fetch to observe the
-     * code bytes and relocations written through the data path. */
-    __builtin___clear_cache((char *)start, (char *)start + len);
-#else
+    /* AOT text and relocations are written through the data path. This is
+     * required for internal executable D/IRAM as well as executable PSRAM so
+     * that instruction fetch observes the final code bytes. */
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+    /* ESP32-S2/S3 executable PSRAM is written through its D-bus alias and
+     * executed through its I-bus alias. The data writeback and instruction
+     * invalidation must both run inside the same kind of cross-core exclusion:
+     * range invalidation alone does not stop the other CPU from reading PSRAM
+     * concurrently. */
+    const size_t line_size = Cache_Get_ICache_Line_Size();
+    if (line_size == 0U) {
+        return;
+    }
+    const uintptr_t first = (uintptr_t)start & ~(uintptr_t)(line_size - 1U);
+    const uintptr_t last = ((uintptr_t)start + len + line_size - 1U) & ~(uintptr_t)(line_size - 1U);
+    begin_cache_exclusive();
+    (void)esp_cache_msync((void *)first, last - first,
+                          ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
+    end_cache_exclusive();
+#elif defined(BUILD_TARGET_XTENSA)
+    __asm__ __volatile__("memw\n\tisync" ::: "memory");
     (void)start;
     (void)len;
+#else
+    __builtin___clear_cache((char *)start, (char *)start + len);
 #endif
 }
 
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
 void *
 os_get_dbus_mirror(void *ibus)
 {
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
     if (in_ibus_ext(ibus)) {
         return (void *)((char *)ibus - MEM_DUAL_BUS_OFFSET);
     }
-    else {
-        return ibus;
+#endif
+#if (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
+    if (esp_ptr_in_diram_iram(ibus)) {
+        return esp_ptr_diram_iram_to_dram(ibus);
     }
+#endif
+    return ibus;
 }
 #endif

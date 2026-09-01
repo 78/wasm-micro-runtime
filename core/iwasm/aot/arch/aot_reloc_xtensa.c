@@ -159,22 +159,32 @@ check_reloc_offset(uint32 target_section_size, uint64 reloc_offset,
 static void
 put_imm16_to_addr(int16 imm16, int16 *addr)
 {
-    int8 bytes[8];
-    int32 *addr_aligned1, *addr_aligned2;
+    /* Xtensa executable memory requires aligned word stores. Use memcpy for
+     * byte assembly to avoid strict-aliasing violations, and volatile stores
+     * so an optimized build cannot discard the relocation write. */
+    uint8 bytes[8];
+    volatile uint32 *addr_aligned1, *addr_aligned2;
+    uint32 word1, word2;
+    uintptr_t byte_offset = (uintptr_t)addr & 3;
 
-    addr_aligned1 = (int32 *)((intptr_t)addr & ~3);
+    addr_aligned1 = (volatile uint32 *)((uintptr_t)addr & ~(uintptr_t)3);
+    word1 = *addr_aligned1;
+    memcpy(bytes, &word1, sizeof(word1));
 
-    if ((intptr_t)addr % 4 != 3) {
-        *(int32 *)bytes = *addr_aligned1;
-        *(int16 *)(bytes + ((intptr_t)addr % 4)) = imm16;
-        *addr_aligned1 = *(int32 *)bytes;
+    if (byte_offset != 3) {
+        memcpy(bytes + byte_offset, &imm16, sizeof(imm16));
+        memcpy(&word1, bytes, sizeof(word1));
+        *addr_aligned1 = word1;
     }
     else {
-        addr_aligned2 = (int32 *)(((intptr_t)addr + 3) & ~3);
-        *(int32 *)bytes = *addr_aligned1;
-        *(int32 *)(bytes + 4) = *addr_aligned2;
-        *(int16 *)(bytes + 3) = imm16;
-        memcpy(addr_aligned1, bytes, 8);
+        addr_aligned2 = addr_aligned1 + 1;
+        word2 = *addr_aligned2;
+        memcpy(bytes + sizeof(word1), &word2, sizeof(word2));
+        memcpy(bytes + byte_offset, &imm16, sizeof(imm16));
+        memcpy(&word1, bytes, sizeof(word1));
+        memcpy(&word2, bytes + sizeof(word1), sizeof(word2));
+        *addr_aligned1 = word1;
+        *addr_aligned2 = word2;
     }
 }
 
@@ -217,7 +227,8 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
         case R_XTENSA_32:
         {
             uint8 *insn_addr = target_section_addr + reloc_offset;
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
             insn_addr = os_get_dbus_mirror((void *)insn_addr);
             bh_assert(insn_addr != NULL);
 #endif
@@ -279,7 +290,8 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
                 return false;
             }
 
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
             insn_addr = os_get_dbus_mirror((void *)insn_addr);
             bh_assert(insn_addr != NULL);
             l32r_insn = (l32r_insn_t *)insn_addr;

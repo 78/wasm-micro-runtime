@@ -4326,7 +4326,8 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
     uint32 section_size;
     uint64 total_size;
     uint8 *aot_text;
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
     uint8 *mirrored_text;
 #endif
 
@@ -4368,7 +4369,8 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
                         goto fail;
                     }
 
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
                     mirrored_text = os_get_dbus_mirror(aot_text);
                     bh_assert(mirrored_text != NULL);
                     bh_memcpy_s(mirrored_text, (uint32)total_size,
@@ -4382,8 +4384,14 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
                     destroy_aot_text = true;
 
                     if ((uint32)total_size > section->section_body_size) {
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
+    || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
+                        memset(mirrored_text + (uint32)section_size, 0,
+                               (uint32)total_size - section_size);
+#else
                         memset(aot_text + (uint32)section_size, 0,
                                (uint32)total_size - section_size);
+#endif
                         section->section_body_size = (uint32)total_size;
                     }
                 }

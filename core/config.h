@@ -662,6 +662,10 @@ unless used elsewhere */
 #define WASM_MEM_DUAL_BUS_MIRROR 0
 #endif
 
+#ifndef WASM_MEM_INTERNAL_DUAL_BUS_MIRROR
+#define WASM_MEM_INTERNAL_DUAL_BUS_MIRROR 0
+#endif
+
 /* The max number of module instance contexts. */
 #ifndef WASM_MAX_INSTANCE_CONTEXTS
 #define WASM_MAX_INSTANCE_CONTEXTS 8
