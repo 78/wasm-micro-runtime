@@ -19,14 +19,13 @@ set (PLATFORM_SHARED_SOURCE ${source_all} ${PLATFORM_COMMON_MATH_SOURCE})
 # WAMR executes through the I-bus alias but must copy and relocate AOT text
 # through the D-bus alias.
 if((CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32S3)
-   AND NOT CONFIG_WAMR_AOT_CODE_IN_PSRAM
-   AND NOT CONFIG_MICROPIXEL_BOARD_ESP32_S3_BOX_3)
+   AND NOT CONFIG_WAMR_AOT_CODE_IN_PSRAM)
     add_definitions(-DWASM_MEM_INTERNAL_DUAL_BUS_MIRROR=1)
 endif()
 
 # Executable PSRAM is independent from placing guest linear memory in PSRAM.
 # Keep AOT code in internal executable SRAM unless explicitly requested.
-if(CONFIG_WAMR_AOT_CODE_IN_PSRAM OR CONFIG_MICROPIXEL_BOARD_ESP32_S3_BOX_3)
+if(CONFIG_WAMR_AOT_CODE_IN_PSRAM)
     if(CONFIG_IDF_TARGET_ESP32P4 OR CONFIG_IDF_TARGET_ESP32S31)
         # ESP32-P4 and ESP32-S31 expose PSRAM in unified executable address
         # ranges. Do not apply the Xtensa I-bus/D-bus mirror used by S2/S3.
