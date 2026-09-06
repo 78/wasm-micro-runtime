@@ -132,10 +132,12 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__unordsf2),
 #elif __riscv_xlen == 32
     /* rv32f, support FP instruction but need soft routines
-     * to convert float and long long
+     * to convert float and long long (FPU converts only to/from i32).
      */
     REG_SYM(__floatundisf),
     REG_SYM(__floatdisf),
+    REG_SYM(__fixunssfdi),
+    REG_SYM(__fixsfdi),
 #endif
 #ifdef NEED_SOFT_DP
     REG_SYM(__adddf3),

@@ -395,6 +395,23 @@ WASM_RUNTIME_API_EXTERN bool
 wasm_runtime_is_running_mode_supported(RunningMode running_mode);
 
 /**
+ * Choose whether instances created from now on reserve their maximum linear
+ * memory size up front (so memory.grow never relocates the base) or start at
+ * the initial size. Only available when the runtime is built with
+ * WASM_LINEAR_MEMORY_RESERVE_MAX; the default is false.
+ *
+ * @param reserve_max true to reserve the maximum at instantiation
+ */
+WASM_RUNTIME_API_EXTERN void
+wasm_runtime_set_linear_memory_reserve_max(bool reserve_max);
+
+/**
+ * @return the setting last passed to wasm_runtime_set_linear_memory_reserve_max
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_get_linear_memory_reserve_max(void);
+
+/**
  * Set the default running mode for the runtime. It is inherited
  * to set the running mode of a module instance when it is instantiated,
  * and can be changed by calling wasm_runtime_set_running_mode

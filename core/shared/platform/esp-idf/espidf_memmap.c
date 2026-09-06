@@ -5,6 +5,7 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
+#include "esp_heap_caps.h"
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0) \
     || (WASM_MEM_EXEC_IN_PSRAM != 0) \
     || (WASM_MEM_INTERNAL_DUAL_BUS_MIRROR != 0)
@@ -180,6 +181,20 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
 void *
 os_mremap(void *old_addr, size_t old_size, size_t new_size)
 {
+    if (old_addr && new_size > old_size) {
+        /* os_mmap records the heap allocation origin just below the aligned
+         * pointer. When that allocation was reserved larger than the mapped
+         * size (WASM_LINEAR_MEMORY_RESERVE_MAX), grow in place so the base
+         * address stays stable. */
+        uintptr_t *addr_field = (uintptr_t *)old_addr - 1;
+        void *buf_origin = (void *)*addr_field;
+        size_t offset = (size_t)((char *)old_addr - (char *)buf_origin);
+        size_t capacity = heap_caps_get_allocated_size(buf_origin);
+        if (capacity >= offset + new_size) {
+            memset((char *)old_addr + old_size, 0, new_size - old_size);
+            return old_addr;
+        }
+    }
     return os_mremap_slow(old_addr, old_size, new_size);
 }
 

@@ -24,6 +24,27 @@ typedef enum Memory_Mode {
     MEMORY_MODE_SYSTEM_ALLOCATOR
 } Memory_Mode;
 
+#if defined(WASM_LINEAR_MEMORY_RESERVE_MAX) && WASM_LINEAR_MEMORY_RESERVE_MAX != 0
+/* Set by the embedder before instantiating a module whose linear memory the
+ * host keeps raw pointers into. Off by default: memories then start at their
+ * initial size and may relocate on memory.grow, exactly as without the
+ * option. Read at instantiation only; the embedder serializes instantiations
+ * against changing it. */
+static bool linear_memory_reserve_max = false;
+
+void
+wasm_runtime_set_linear_memory_reserve_max(bool reserve_max)
+{
+    linear_memory_reserve_max = reserve_max;
+}
+
+bool
+wasm_runtime_get_linear_memory_reserve_max(void)
+{
+    return linear_memory_reserve_max;
+}
+#endif
+
 static Memory_Mode memory_mode = MEMORY_MODE_UNKNOWN;
 
 static mem_allocator_t pool_allocator = NULL;
@@ -2075,6 +2096,14 @@ wasm_allocate_linear_memory(uint8 **data, bool is_shared_memory,
 #if WASM_ENABLE_SHARED_MEMORY != 0
     if (is_shared_memory) {
         /* Allocate maximum memory size when memory is shared */
+        map_size = max_page_count * num_bytes_per_page;
+    }
+    else
+#endif
+#if defined(WASM_LINEAR_MEMORY_RESERVE_MAX) && WASM_LINEAR_MEMORY_RESERVE_MAX != 0
+    if (linear_memory_reserve_max) {
+        /* Reserve the maximum so os_mremap can grow in place and the base
+         * address never moves. */
         map_size = max_page_count * num_bytes_per_page;
     }
     else

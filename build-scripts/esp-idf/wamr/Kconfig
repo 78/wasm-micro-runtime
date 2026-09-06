@@ -89,6 +89,19 @@ menu "WASM Micro Runtime"
             PSRAM. Runtime metadata, native task stacks, and relocated AOT
             code continue to use internal memory.
 
+    config WAMR_LINEAR_MEMORY_RESERVE_MAX
+        bool "Reserve the maximum linear memory size at instantiation"
+        default n
+        help
+            Build support for reserving a module's linear memory at its
+            declared (or host-capped) maximum page count when the instance is
+            created and growing it in place. memory.grow then never relocates
+            the linear memory base, so host pointers into guest memory (for
+            example DMA scan-out buffers) stay valid for the lifetime of the
+            instance. The embedder enables it per instantiation with
+            wasm_runtime_set_linear_memory_reserve_max(); instances created
+            while it is off start at their initial size as usual.
+
     config WAMR_AOT_CODE_IN_PSRAM
         bool "Place relocated AOT executable code in PSRAM"
         depends on WAMR_ENABLE_AOT && SPIRAM

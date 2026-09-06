@@ -23,6 +23,12 @@ if((CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32S3)
     add_definitions(-DWASM_MEM_INTERNAL_DUAL_BUS_MIRROR=1)
 endif()
 
+# Reserve the declared maximum linear memory up front so memory.grow never
+# moves the base address. Hosts that hand guest buffers to DMA rely on it.
+if(CONFIG_WAMR_LINEAR_MEMORY_RESERVE_MAX)
+    add_definitions(-DWASM_LINEAR_MEMORY_RESERVE_MAX=1)
+endif()
+
 # Executable PSRAM is independent from placing guest linear memory in PSRAM.
 # Keep AOT code in internal executable SRAM unless explicitly requested.
 if(CONFIG_WAMR_AOT_CODE_IN_PSRAM)
