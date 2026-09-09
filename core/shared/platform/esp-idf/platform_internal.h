@@ -32,10 +32,12 @@
 extern "C" {
 #endif
 
-/* Implemented by espidf_platform.c when ESP-IDF doesn't provide it. */
+#if defined(__PICOLIBC__)
+/* Picolibc omits this declaration; espidf_platform.c defines the stub. */
 int
 renameat(int old_dirfd, const char *old_path, int new_dirfd,
          const char *new_path);
+#endif
 
 #ifndef BH_PLATFORM_ESP_IDF
 #define BH_PLATFORM_ESP_IDF
