@@ -26,6 +26,23 @@
 #endif
 #endif
 
+#if WASM_ENABLE_THREAD_MGR != 0 && WASM_ENABLE_DUMP_CALL_STACK != 0
+#ifndef os_thread_local_attribute
+#define os_thread_local_attribute _Thread_local
+#endif
+/* Cache identity only on Guest entry. ESP-IDF's pthread_self cannot be
+   called by external FreeRTOS tasks such as the Host or timer service. */
+static os_thread_local_attribute korp_tid registered_thread_handle;
+static os_thread_local_attribute bool thread_handle_registered;
+
+bool
+wasm_exec_env_is_current_thread(const WASMExecEnv *exec_env)
+{
+    return thread_handle_registered
+           && exec_env->handle == registered_thread_handle;
+}
+#endif
+
 WASMExecEnv *
 wasm_exec_env_create_internal(struct WASMModuleInstanceCommon *module_inst,
                               uint32 stack_size)
@@ -281,6 +298,10 @@ void
 wasm_exec_env_set_thread_info(WASMExecEnv *exec_env)
 {
     korp_tid self = os_self_thread();
+#if WASM_ENABLE_THREAD_MGR != 0 && WASM_ENABLE_DUMP_CALL_STACK != 0
+    registered_thread_handle = self;
+    thread_handle_registered = true;
+#endif
 
     /*
      * aot_call_function / wasm_call_function invoke this on every

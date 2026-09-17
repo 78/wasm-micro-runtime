@@ -306,6 +306,12 @@ wasm_exec_env_restore_module_inst(
 void
 wasm_exec_env_set_thread_info(WASMExecEnv *exec_env);
 
+#if WASM_ENABLE_THREAD_MGR != 0 && WASM_ENABLE_DUMP_CALL_STACK != 0
+/* Safe for external tasks which are not registered with the native thread API. */
+bool
+wasm_exec_env_is_current_thread(const WASMExecEnv *exec_env);
+#endif
+
 #if WASM_ENABLE_THREAD_MGR != 0
 void *
 wasm_exec_env_get_thread_arg(WASMExecEnv *exec_env);

@@ -1338,8 +1338,11 @@ wasm_cluster_set_exception(WASMExecEnv *exec_env, const char *exception)
 
     os_mutex_lock(&cluster->lock);
 #if WASM_ENABLE_DUMP_CALL_STACK != 0
-    if (has_exception) {
-        /* Save the stack frames of the crashed thread into the cluster */
+    if (has_exception && wasm_exec_env_is_current_thread(exec_env)) {
+        /* Only the executing thread may inspect its live stack. External
+           termination can race with frame push/pop even with cluster->lock
+           held. Publish cancellation below without walking that stack; the
+           executing thread can collect it on its exception return path. */
         WASMModuleInstance *module_inst =
             (WASMModuleInstance *)get_module_inst(exec_env);
 
